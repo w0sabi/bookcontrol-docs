@@ -1,0 +1,119 @@
+---
+title: "Roadmap"
+description: "Prototyp-Roadmap bis 30.09.2026 mit Entscheidungslog und Backlog"
+icon: "map"
+---
+
+Ziel: lauffähiger Prototyp mit funktionierendem Onboarding, modernisiertem UI und ohne die bekannten „komischen Bugs". Details und Belege zu allen Punkten in [Audit September 2026](/project/audit-2026-09).
+
+## Leitplanken
+
+- Das Design-Fundament (Tokens, shadcn, App-Shell) wird **behalten und ausgebaut**, nicht neu gebaut. Modernisierung = konsistente Anwendung + Politur, nicht Rewrite.
+- Sicherheitsfixes K1–K5 sind Prototyp-Blocker, weil sonst kein Share-Link an Externe gehen darf.
+- Strukturelle Datenmodell-Umbauten (tenant_id-Spalten überall, JSONB→Tabellen, FK auf festival_id) sind **nach** dem Prototyp dran.
+
+---
+
+## Phase 1 — Onboarding entsperren (17.–19.09.) ✅ umgesetzt 16.09.
+
+Ohne das ist die App für neue User unbenutzbar; alles Weitere baut darauf auf.
+
+- [x] `handle_new_user`-Trigger: neuer User wird **Admin seines eigenen Tenants**; eingeladene User treten via `app_metadata` (nur Service-Role) dem Tenant des Einladenden bei. Migration `20260916211000_owner_admin_onboarding.sql`.
+- [x] **K1 vorgezogen** (Voraussetzung für Owner-Admin): Legacy-`FOR ALL is_admin`-Policies gedroppt, tenant-scoped Write-Policies + tenant-gescopte Rollen-/Member-/Invite-/Profil-/Signatur-Policies. Migration `20260916210000_tenant_scoped_write_policies.sql`.
+- [x] `addFestival`: DB-Insert zuerst, Fehler werfen statt still verschlucken; Anlage blockiert bis `tenantId` geladen ist. Festival-IDs jetzt `crypto.randomUUID()`.
+- [x] `invite-user` repariert: Rolle validiert, Tenant des Einladenden via `app_metadata` an den Trigger übergeben, keine doppelte Rollen-Zeile mehr; Rollen-Fetch im Frontend deterministisch (neueste Zuweisung gewinnt).
+- [x] **Onboarding-Wizard** (`src/components/onboarding/`): First-Run-Flow bei fehlendem Profilnamen und/oder leerer Festival-Liste — Profil-Schritt → „Erstes Festival anlegen" (nur für Admins; eingeladene Nicht-Admins in leerer Organisation sehen einen Hinweis-Screen). Vollständig über i18n-Keys (EN + DE).
+- [x] Nebenbei: Default-Sprache auf **Englisch** umgestellt (Owner-Entscheidung).
+- [x] Migrationen deployed (Migrationshistorie musste vorher per `migration repair` auf die lokalen Dateinamen umgebucht werden — Lovable hatte abweichende Versionsnummern registriert), `invite-user` deployed.
+- [x] **End-to-End-Test gegen die Remote-DB: 17/17 bestanden** — frischer User bekommt Admin + eigenen leeren Tenant, sieht 0 Festivals, kann eines anlegen und sieht es danach; Cross-Tenant-Lesen/-Schreiben blockiert; Invite über die echte Edge Function: Invitee landet im Tenant des Einladenden mit korrekter Einzelrolle, ohne Zusatz-Tenant, und sieht dessen Festival.
+
+**Befund aus dem Test (16./17.09.):** Der öffentliche Signup-API-Endpunkt ist serverseitig NICHT deaktiviert (Invite-only war bisher nur UI-Kosmetik); er scheitert aktuell nur zufällig am Bestätigungsmail-Versand. `enable_signup=false` steht jetzt in `config.toml`, aber der Push wurde mit 403 abgelehnt — **Owner muss einmal im Dashboard deaktivieren**: Authentication → Sign In/Up → „Allow new users to sign up" aus.
+
+**Entscheidung (17.09.):** `app_metadata` ist beim Signup-Trigger noch nicht gesetzt (GoTrue merged nach dem Insert) — die Tenant-Zuordnung von Invitees macht daher die `invite-user`-Function explizit per Service-Role (Rolle ersetzen, Membership umhängen, Auto-Tenant löschen).
+
+**Entscheidung (16.09.):** Statt `is_admin()` tenant-bewusst umzubauen, wurden alle Admin-Policies mit einem zusätzlichen Tenant-Match versehen — kleinerer Eingriff, gleiches Ergebnis; `email_log`-Admin-SELECT (ohne Tenant-Bezug) bleibt als Phase-2-Punkt (K4-Umfeld).
+
+**Bekannte Lücke für Phase 2:** `invite_links` hat weiterhin eine anon-SELECT-Policy (`is_active = true`) — gleiche Klasse wie K2, wird dort mit behoben.
+
+## Phase 2 — Sicherheits-Blocker K1–K5 (19.–23.09.) ✅ umgesetzt 17.09.
+
+- [x] **K1**: bereits in Phase 1 vorgezogen (Migration `20260916210000`).
+- [x] **K2**: anon-SELECT auf `access_links` UND `invite_links` entfernt; Token-Auflösung über neue RPC `resolve_access_token` (exakter Match, keine Enumeration); Management-Ansichten über tenant-scoped SELECT. Migration `20260917090000_public_surface_hardening.sql`.
+- [x] **K3**: `pdf_annotations` nicht mehr anonym zugreifbar. Public-Seiten (Contract/Rider) laufen über token-gegatete RPCs `get_public_annotations`/`upsert_public_annotations` (Token muss aktiv, nicht abgelaufen und zum Annotation-Key passend sein); intern tenant-scoped via `get_annotation_tenant`. PDFViewer pollt im Token-Modus alle 15 s statt Realtime (RLS blockt anon-Realtime-Rows).
+- [x] **K4**: `send-email` akzeptiert nur noch Service-Role oder echten User-JWT (anon-Key → 401) und loggt `tenant_id`; `email_log` nur noch tenant-scoped lesbar; `public-timetable-notify` prüft Token auf Typ `timetable`/aktiv/Ablauf, whitelisted `decision` und escaped alle Nutzereingaben im HTML; CORS beider Functions auf bookcontrol.info + localhost eingeschränkt.
+- [x] **K5**: alle 31 `Date.now()`-basierten ID-Erzeugungen auf `crypto.randomUUID()` umgestellt (Offers, Contracts, Bookings, Riders, SocialAssets, Versionen, Kommentare, Links, Overlays).
+- [x] **Verifikation**: Angriffspfad-E2E gegen die Remote-DB, **17/17 bestanden** — Token-/Annotations-Enumeration, anon-Writes, Mail-Relay und Cross-Doc-Zugriffe blockiert; gültige Token-Flows (resolve, Annotations lesen/schreiben) und interne Zugriffe funktionieren weiter. Zwei-Tenant-Isolation bereits in Phase 1 belegt.
+
+## Phase 3 — Bug-Hygiene (23.–25.09.) ✅ umgesetzt 17.09.
+
+- [x] Still verschluckte Fehler sichtbar machen: alle `console.warn`-only-Persistenzpfade in `OfferContext` (Offer/Contract/Signatur-Upserts, Share-Links, Clauses, PDF-Uploads, Templates) und `AppContext.persistBookingToSupabase` melden Fehler jetzt per Error-Toast (`notifyPersistError`).
+- [x] Nebenbefund gefixt: Share-Tokens in `sendOffer`/`sendContract` wurden mit `Math.random()` erzeugt (kryptografisch schwach) — jetzt 160-Bit-Token aus `crypto.getRandomValues`.
+- [x] Public-Signaturanzeige gefixt: neue token-gegatete RPC `get_public_signatures`; alle drei Public-Seiten (Offer/Contract/Rider) nutzen sie statt des anon-geblockten Direkt-Selects. Migration `20260917100000`.
+- [x] Lost-Update-Entschärfung (Minimalvariante): interne Versions-Kommentare (Offer + Contract) laufen über die neue atomare RPC `append_document_comment` (authenticated, tenant-geprüft) statt Whole-Row-Upsert — extern hinzugefügte Kommentare werden nicht mehr überschrieben. Vollständige JSONB-Ablösung bleibt Backlog.
+- [x] Toter Code raus: `OfferAccess.tsx`, `ClauseLibrary.tsx`, totes `AppContext.notifications`-Feld entfernt.
+- **Entscheidung Owner (17.09.): Fake-UI bleibt sichtbar** — Settings-Templates, Notification-Rules und die Rider/Social/Media-Spalten im ProcessMonitoring werden NICHT entfernt, sondern als Features im Backlog umgesetzt (siehe unten). Das Demo-Gerüst (`isDemoFestival`-Stub in ~10 Dateien) bleibt vorerst; vollständige Entfernung ist ein eigener Backlog-Refactor.
+
+## Phase 4 — UI-Modernisierung (gestartet: Design Guidelines beschlossen, Umsetzung auf Branch `redesign`)
+
+Reihenfolge: erst gemeinsame Bausteine, dann Seiten in Nutzungs-Reihenfolge. Verbindliche Grundlage: [Design Guidelines](/design/guidelines).
+
+- [ ] **Token-Ebene**: `--bc-*`-Variablen, Light als Default, Navy & Ice, 4 Status-Familien.
+- [ ] **Gemeinsame Bausteine**: `PageShell`/`PageHeader`-Pattern; Skeleton-Loading- und Empty-State-Komponenten; Topbar auf `ui/`-Komponenten umbauen (Focus-Rings, a11y); Sonner-Theme-Bug fixen (an eigenen `ThemeContext` koppeln); doppelten `Toaster` entfernen.
+- [ ] **Design-Politur** auf Token-Basis: Hex-Duplikate eliminieren (v. a. `BudgetExport`), fixe Pixelbreiten durch responsive Maße ersetzen, Z-Index-Ebenen konsolidieren.
+- [ ] **Seiten modernisieren** (rohe `<table>`/`<button>` → shadcn, Loading/Empty/Error-States, PageHeader), priorisiert nach Sichtbarkeit: Dashboard (Index) → Bookings → Offers → Contracts → Riders → Timetable → Budget → Contacts → SocialAssets → ProcessMonitoring → Settings.
+- [ ] **Monolithen nur so weit zerlegen, wie fürs Restyling nötig** (Timetable 1923 Z., Budget 1581 Z., Contacts 1302 Z.); vollständiges Refactoring nach Prototyp.
+- [ ] **Public-Seiten**: gemeinsames, schlankes Public-Layout (Offer/Contract/Rider/Timetable/SocialAsset) — das sehen Agenturen zuerst.
+- [ ] **Sprache: Englisch als Prototyp-Standard.** Beim Umbau jeder Seite alle hart codierten Strings (v. a. deutsche Toasts, Auth, Public-Seiten) durch i18n-Keys mit gepflegten `en`-Werten ersetzen. Deutsch wird danach durch reines Auffüllen der `de`-Sektion in `translations.ts` ergänzt — keine Komponentenänderungen mehr nötig.
+
+## Phase 5 — Stabilisierung & Abnahme (vorgezogen, gestartet 17.09.)
+
+**Runde 1 (17.09.) — Owner-Reports + systematischer 3-fach-Audit, gefixt und deployed:**
+
+- [x] **SICHERHEIT (Owner-Report): Profile-Leak geschlossen.** Legacy-Policy „Admins can view all profiles" (global `is_admin`, März-Migration) machte seit der Owner-Admin-Umstellung alle Profile+E-Mails für jeden sichtbar. Systematischer Sweep aller nie gedroppten `is_admin`-Policies fand zusätzlich globale Storage-Write-Policies (documents-Bucket; die Ablöse-Migration hatte damals die falschen Policy-Namen gedroppt) und globale Profile-Write-Policies. Migration `20260917130000_drop_global_admin_leaks.sql`, E2E-verifiziert: frischer User sieht nur eigenes Profil, Fremd-Festival-Upload blockiert.
+- [x] Topbar „NaN% complete" bei 0 Bookings (Owner-Report).
+- [x] Dashboard zeigte hartkodiert 800.000 € Budget (Owner-Report); nutzt jetzt echte `budget_limits`, zeigt „Set budget"-Link wenn unkonfiguriert; DB-Default 800000→0.
+- [x] **Budget-Seite erfand Kosten:** Rider-/Produktions-/Hotelkosten kamen aus `Math.random()`; jetzt nur echte Komponenten (Fee, Travel, Additional, WHT). Stage-/Day-Default-Budgets (100k/350k/…) → 0; ungeplante Bookings nicht mehr fälschlich „Freitag" zugeordnet; Deviation/Utilization gegen Division durch 0 geschützt; WHT-Land kommt jetzt aus der Festival-Konfiguration statt Dropdown-Default „Germany".
+- [x] Contract-Status `contract_signed_by_agency` fehlte in Typ/Labels/Order → leeres Badge, kaputte Timeline wenn Agentur zuerst signiert.
+- [x] Kommentare/Aktivitäten zeigten wörtlich „Current User" als Autor → echter Nutzername via `useCurrentUserName` (Offers, Bookings, Contracts, SocialAssets).
+- [x] Crash-Guards: Riders `getCurrentVersion` (Realtime-Race), Timetable-Datumsbutton bei fehlendem `endDate`, Contacts Fee-Entwicklung bei Startgage 0, `useBudgetLimits` NaN.
+- [x] PDF-Annotations-Speicherfehler jetzt sichtbar (Toast statt still); useMentionableUsers Hook-Order-Verstoß + Public-Pfad-Regex; ResetPassword-Fallback (gültiger Link zeigte „abgelaufen"); Dev-Umgebung nutzt localhost statt Prod-Domain für Reset-/Share-Links; verwaister „·"-Trenner in Topbar; diverse Kleinigkeiten.
+- [x] **Runde 2 (API-Durchlauf, 17.09.): 30/30 Checks bestanden.** Frischer User end-to-end durch alle Module: Onboarding → Festival → Booking → Offer (Share-Link → anon öffnen → Agentur signiert → Signatur sichtbar → interner Kommentar) → Contract (inkl. Storage-Roundtrip: User lädt PDF, anon lädt via Link herunter und lädt neue Version hoch, fremder Pfad blockiert) → Annotationen → Rider → Timetable (Draft/Slot → Public-Ansicht → Agentur bestätigt Slot → locked) → Budget (Default 0 bestätigt) → Contacts/Artists. Dabei gefunden & gefixt: Whitelist in `public-timetable-notify` erwartete `confirm` statt des tatsächlichen Werts `accept` (in K4 falsch eingeführt; realer Call-Pfad nutzt nur `reject` und war nie betroffen).
+- [ ] Zwei-Browser-Test Realtime (manuell durch Owner); Browser-Konsole auf Hauptseiten sauber (Owner klickt parallel durch).
+
+**Neu ins Backlog aus dem Audit** (bewusst nicht sofort gefixt):
+
+- Währungs-Mix: Artist-Übernahme verwirft `artist.currency` → Fee wird in Festival-Währung angezeigt (braucht Currency-Feld am Booking).
+- pdf.js-Worker von cdnjs → lokal bündeln + Fehlerbehandlung (Firewall/Offline zeigt sonst leeren Viewer).
+- PDFViewer-Poll kann frisch gezeichnete, noch nicht gespeicherte Overlays überschreiben (Merge nach `updated_at` nötig).
+- useFestivalHistory: aktuelles Festival immer mit Budget 0 im YoY-Vergleich; Refetch bei jeder Render (Array-Dep).
+- Festival-Logos auf Public-Seiten broken (documents-Bucket anon-gesperrt, Token-Pfad-Check deckt `festivals/` nicht ab).
+- Bulk-Export überspringt fehlgeschlagene Assets kommentarlos.
+- AccessLinkPage: toter Anon-Direktzugriff-Code (`loadEntityPreview`) entfernen.
+
+---
+
+## Bewusst NACH dem Prototyp (Backlog)
+
+**Fake-UI zu echten Features ausbauen (Owner-Entscheidung: UI bleibt sichtbar, Implementierung folgt):**
+
+- Settings → Contract-/Rider-Templates: echte CRUD-Verwaltung statt hartkodierter Namen mit toten Buttons (`Settings.tsx:200-227`).
+- Settings → Notification Rules: Schalter an `user_preferences`/Backend binden statt `<Switch defaultChecked>` ohne Wirkung (`Settings.tsx:234-247`).
+- ProcessMonitoring: Rider-/Social-/Media-Spalten an echte DB-Daten binden (aktuell dauerhaft 0, `ProcessMonitoring.tsx:163-165,198`).
+
+Weitere Backlog-Punkte:
+
+- Reminder-Versand (pg_cron/Scheduled Function für `next_reminder_date`) — UI-Attrappe bis dahin ausgeblendet.
+- Demo-Gerüst vollständig entfernen (`isDemoFestival`-Stub + leere `MOCK_*`/`DEFAULT_*`-Arrays, ~10 Dateien).
+- Strukturfix Datenmodell: `tenant_id` NOT NULL + FK auf allen mandantengebundenen Tabellen, `festival_id` als FK, JSONB-Arrays (versions/audit_log/comments) in eigene Tabellen.
+- Deutsche Übersetzungen vervollständigen (`de`-Sektion in `translations.ts` auffüllen).
+- Settings-Templates & Notification-Rules echt implementieren.
+- Vollständige Zerlegung der Monolith-Seiten + `PDFViewer`.
+- Mobile-Feinschliff über die Shell hinaus.
+
+## Getroffene Entscheidungen (Owner, 16.09.2026)
+
+1. **Invite-only** — Self-Signup bleibt deaktiviert; dafür Onboarding-Wizard (Profil vervollständigen, erstes Projekt anlegen).
+2. **Prototyp-Sprache Englisch**; alle Strings über i18n-Keys, Deutsch wird nachträglich nur noch in `translations.ts` ergänzt.
+3. **Neuer Nutzer startet mit leerem Festival** — kein Demo-Seed.
+4. **URL-Schema (17.09.):** `/FESTIVAL_ID/seite` statt `?festival=` (Ästhetik). Optionale Router-Segmente `/:festivalId?/...`; Legacy-Links (`?festival=`, ungeprefixte Pfade, gespeicherte Notification-Deep-Links) werden automatisch auf die Pfad-Form normalisiert. Helper in `src/lib/festivalPath.ts` (unit-getestet).
+5. **Redesign auf Branch `redesign`** (17.09.); Dokumentation lebt ab jetzt in Mintlify.

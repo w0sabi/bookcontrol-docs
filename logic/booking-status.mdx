@@ -1,0 +1,13 @@
+---
+title: "Booking-Status-Ableitung"
+description: "Der Booking-Status wird systemisch aus Offer/Contract/Rider/Announcement abgeleitet"
+icon: "git-branch"
+---
+
+Booking status is the SINGLE SOURCE OF TRUTH derived in `src/lib/deriveBookingStatus.ts` from:
+- Offer status (OfferContext)
+- Contract status (OfferContext)
+- Rider status (riders table / DEFAULT_RIDERS)
+- Announcement status (booking.announcementStatus)
+
+Manual status editing is REMOVED everywhere in the UI. The only manual status override allowed is cancellation (and reactivation from cancelled). Filters across Bookings list and Contactbook artist list MUST only show statuses that are actually present after derivation. BookingDetail auto-syncs the derived status back to `bookings.status` so other modules and reports stay aligned.
