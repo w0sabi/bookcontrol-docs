@@ -8,8 +8,8 @@
     "dark": "#00246B"
   },
   "favicon": {
-    "light": "/images/bookcontrol-icon-dark.svg",
-    "dark": "/images/bookcontrol-icon-light.svg"
+    "light": "/images/bookcontrol-icon-light.svg",
+    "dark": "/images/bookcontrol-icon-dark.svg"
   },
   "navigation": {
     "pages": [
