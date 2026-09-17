@@ -5,4 +5,95 @@ icon: "lock"
 tag: "TODO"
 ---
 
-Platzhalter.
+<Warning>
+  **Status: geplant, noch NICHT umgesetzt.** Dies ist das verbindliche Konzept für das Sicherheitspaket „Permissions serverseitig durchsetzen". Priorität: hoch — es schließt eine echte Zugriffslücke, kein reines Feature.
+</Warning>
+
+## Das Problem
+
+Es existiert bereits ein feingranulares RBAC-System — aber nur im Frontend:
+
+- **8 Rollen** in zwei Tiers: intern (`FESTIVAL_ADMIN`, `FESTIVAL_BOOKING`, `FESTIVAL_FINANCE`, `FESTIVAL_SOCIAL`, `FESTIVAL_READONLY`) und extern (`ARTIST_AGENCY`, `TAX_ADVISOR`, `PRODUCTION_SERVICE`).
+- **~28 Permissions** (`PERM_OFFER_CREATE`, `PERM_BUDGET_EDIT`, `PERM_USER_MANAGE`, …), Definition in `src/data/permissions.ts`.
+- Eine anpassbare **Rolle-→-Permission-Matrix** (`DEFAULT_ROLE_PERMISSIONS`) und ein `RolePermissionsEditor` in den Settings.
+- 41 Stellen im Code fragen `hasPerm()` / `hasPermission()` ab.
+
+**Die Lücke:** Die Datenbank kennt nur `is_admin()` (darf schreiben) vs. nicht-admin (nur lesen im aktiven Tenant). Die 28 Permissions und die Matrix werden **nirgends serverseitig durchgesetzt** — die `rolePermissions` liegen nur im React-State, nicht einmal in der DB. Konsequenz:
+
+- Ein Booker, dem die UI den Budget-Tab versteckt, kann per direktem API-Call trotzdem Budgets schreiben, solange er irgendeine Nicht-Readonly-Rolle hat.
+- Seit der Multi-Tenant-Umstellung sind die Sub-Rollen (booker/finance/social) DB-seitig sogar komplett wirkungslos — nur `admin` vs. Rest zählt.
+
+## Designentscheidung: flach + capability-basiert (keine Hierarchie)
+
+Echte Rollenhierarchien (Rolle X erbt Rechte von Y) werden schnell undurchschaubar („warum darf der das?") und sind schwer zu auditieren. Wir bleiben beim Muster von Slack/Notion/Linear: **wenige flache Rollen, jede mit einem expliziten Set an Capabilities, keine Vererbung.** Das existierende Frontend-Modell passt bereits — es muss nur echt (serverseitig) werden.
+
+## Zielarchitektur
+
+<Steps>
+  <Step title="Permission-Matrix pro Organization persistieren">
+    Neue Tabelle `role_permissions (tenant_id, role, permission)` — die Matrix, die heute nur im React-State lebt. Default beim Anlegen einer Organization aus `DEFAULT_ROLE_PERMISSIONS` geseedet. Der `RolePermissionsEditor` schreibt hierhin statt in flüchtigen State.
+  </Step>
+  <Step title="has_perm() als Wahrheitsquelle">
+    ```sql
+    -- Prüft: hat der User im AKTIVEN Tenant eine Rolle, der diese Permission zugeordnet ist?
+    create function public.has_perm(_user_id uuid, _perm text) returns boolean
+    language sql stable security definer set search_path = public as $$
+      select exists (
+        select 1
+        from public.user_roles ur
+        join public.role_permissions rp
+          on rp.tenant_id = ur.tenant_id and rp.role = ur.role
+        where ur.user_id = _user_id
+          and ur.tenant_id = public.get_user_tenant(_user_id)
+          and rp.permission = _perm
+      );
+    $$;
+    ```
+
+    `is_admin()` bleibt als Kurzform bestehen (admin = alle Permissions).
+  </Step>
+  <Step title="Write-Policies umstellen">
+    Jede modul-spezifische Write-Policy prüft künftig die passende Permission statt pauschal `is_admin()`. Beispiel Budget:
+
+    ```sql
+    -- vorher: is_admin(auth.uid())
+    -- nachher:
+    using ( (select public.has_perm(auth.uid(),'PERM_BUDGET_EDIT'))
+            and public.get_festival_tenant(festival_id) = (select public.get_user_tenant(auth.uid())) )
+    ```
+
+    Tenant-Isolation bleibt unverändert daneben stehen — Permission UND Tenant müssen stimmen.
+  </Step>
+  <Step title="Frontend gegen dieselbe Quelle">
+    `hasPerm()` liest die Matrix aus `role_permissions` des aktiven Tenants (statt aus `DEFAULT_ROLE_PERMISSIONS` im State). UI und DB entscheiden damit garantiert gleich — kein Auseinanderlaufen mehr.
+  </Step>
+</Steps>
+
+## Permission → Policy-Mapping (Arbeitsgrundlage)
+
+| Permission | Betroffene Tabellen (Write) |
+| --- | --- |
+| `PERM_BOOKING_EDIT` | `bookings` |
+| `PERM_OFFER_CREATE` / `_EDIT` / `_SEND` | `offers`, `access_links` (offer) |
+| `PERM_CONTRACT_UPLOAD` / `_EDIT` / `_OVERRIDE` | `contracts`, `access_links` (contract) |
+| `PERM_RIDER_EDIT` | `riders`, `rider_library_items` |
+| `PERM_TIMETABLE_EDIT` | `timetable_slots`, `timetable_drafts`, `timetable_stage_configs` |
+| `PERM_SOCIAL_EDIT` / `_APPROVE` | `social_assets` |
+| `PERM_BUDGET_EDIT` / `PERM_FORECAST_EDIT` | `budget_limits` |
+| `PERM_CONTACTS_EDIT` | `contacts`, `artist_profiles`, `artist_contacts` |
+| `PERM_SETTINGS_EDIT` | `festivals`, `library_templates`, `hotel_library`, `hotel_room_types` |
+| `PERM_USER_MANAGE` | `user_roles`, `tenant_members`, `invite_links`, `role_permissions` |
+
+## Sicherheitsinvarianten (E2E, vor dem Merge zu erfüllen)
+
+- Booker **ohne** `PERM_BUDGET_EDIT` → `budget_limits`-Write per direktem API-Call wird abgelehnt (nicht nur UI-versteckt).
+- Finance-Rolle darf Budget schreiben, aber keine Offers senden.
+- Permission-Matrix ist **pro Organization** — dieselbe Rolle kann in Org A `PERM_BUDGET_EDIT` haben und in Org B nicht.
+- `PERM_USER_MANAGE` ist der einzige Weg zu Rollen-/Permission-Änderungen; ohne ihn kein Schreibzugriff auf `role_permissions`/`user_roles`.
+- Externe Tier-Rollen (Artist/Agency etc.) haben nie interne Write-Permissions.
+
+## Offene Detailfragen (bei Umsetzung entscheiden)
+
+1. **Festival-Scope innerhalb einer Org**: `user_roles.festival_id` existiert bereits (heute ungenutzt). Sollen Permissions optional pro Festival gelten (Booker nur für Festival X)? Empfehlung: erst org-weit, festival-scope als spätere Erweiterung.
+2. **Externe Rollen (Agency/Tax/Production)**: brauchen die einen eigenen, eingeschränkten App-Zugang, oder laufen sie ausschließlich über Share-Links? Aktuell: nur Share-Links — dann sind diese Rollen in `role_permissions` vorerst irrelevant.
+3. **Einladungsflow für neue User**: sauberer E-Mail-Einladungslink mit Passwort-Setzen (statt direktem Anlegen in `invite-user`) — eigenes, kleineres Paket nach diesem hier.
