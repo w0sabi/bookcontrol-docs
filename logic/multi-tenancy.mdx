@@ -4,4 +4,55 @@ description: "Modell A: aktiver Tenant, Rollen pro Organization, hierarchischer 
 icon: "building"
 ---
 
-Platzhalter — Inhalt folgt.
+Ein User kann Mitglied **mehrerer Organizations** (Tenants) sein — z. B. ein Booker, der für mehrere Veranstalter arbeitet. Umgesetzt ist **Modell A (aktiver Tenant)**: Man arbeitet immer in genau _einer_ aktiven Organization und wechselt bewusst.
+
+## Kernprinzipien
+
+<CardGroup cols={2}>
+  <Card title="Aktiver Tenant" icon="toggle-on">
+    `profiles.active_tenant_id` bestimmt den Arbeitskontext. Alle Daten-Policies filtern auf diesen einen Tenant — man sieht nie zwei Organizations vermischt.
+  </Card>
+
+  <Card title="Rollen pro Organization" icon="user-shield">
+    `user_roles.tenant_id`: dieselbe Person kann Admin in Organization A und Booker in Organization B sein. Rollen sind strikt getrennt.
+  </Card>
+
+  <Card title="Hierarchischer Switcher" icon="sitemap">
+    Der Sidebar-Dropdown zeigt die aktive Organization als Kopf, darunter ihre Festivals, darunter „Organisation wechseln" — Org und Festival in einem.
+  </Card>
+
+  <Card title="Serverseitig validiert" icon="shield-check">
+    Der Wechsel läuft über `switch_active_tenant()` und akzeptiert nur eigene Memberships. Ein manipulierter aktiver Tenant führt zu _keinem_ Zugriff, nicht zu falschem.
+  </Card>
+</CardGroup>
+
+## Datenmodell
+
+| Tabelle | Rolle im Modell |
+| --- | --- |
+| `tenants` | Eine Organization. |
+| `tenant_members` | n:m User ↔ Organization (eine Zeile pro Mitgliedschaft, Unique `user_id + tenant_id`). |
+| `user_roles` | Rolle je User **und** Organization (`tenant_id` NOT NULL, Unique `user_id + tenant_id`). |
+| `profiles.active_tenant_id` | Der aktuell aktive Arbeitskontext (FK, `ON DELETE SET NULL`). |
+
+## Kernfunktionen (SECURITY DEFINER)
+
+- **`get_user_tenant(uid)`** — liefert `active_tenant_id`, aber nur wenn dafür eine Membership existiert. Kein gültiger aktiver Tenant → `NULL` → kein Zugriff.
+- **`is_admin(uid)` / `has_role(uid, role)`** — prüfen die Rolle **im aktiven Tenant**, nicht global.
+- **`switch_active_tenant(tenant_id)`** — setzt den aktiven Tenant; nur auf eine eigene Membership, sonst `false`. Für `anon` gesperrt.
+
+Weil alle ~30 tenant-scoped Policies über `get_user_tenant()`/`is_admin()` laufen, bleibt ihre Isolations-Semantik unverändert — sie greifen nur jetzt auf den aktiven Tenant statt auf „die erste Membership".
+
+## Sicherheitsinvarianten (E2E-verifiziert, 16/16)
+
+- Isolation je aktiver Organization: aktiv=A sieht nur A-Daten, aktiv=B nur B-Daten.
+- Rollentrennung: Admin in A darf dort alles, als Booker in B kein Festival anlegen und keine Rollen ändern.
+- Ein Admin sieht nur Rollen/Profile seiner **aktiven** Organization.
+- `switch_active_tenant` akzeptiert nur eigene Memberships; `anon` ist ausgeschlossen.
+- `invite-user` mit bestehender E-Mail = „zur aktiven Organization hinzufügen" (Membership + Rolle), ohne die anderen Organizations oder den aktiven Tenant des Eingeladenen anzutasten.
+
+## Neue User & Einladungen
+
+- **Signup** (`handle_new_user`): jeder neue User wird Admin seiner eigenen leeren Organization; `active_tenant_id` wird gesetzt.
+- **Einladung neuer User**: `invite-user` siedelt sie in die aktive Organization des Einladenden um (Membership + Rolle dort).
+- **Einladung bestehender User**: fügt nur eine Membership + Rolle in der aktiven Organization hinzu — der Multi-Org-Fall.
