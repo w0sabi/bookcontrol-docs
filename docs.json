@@ -50,16 +50,10 @@
     "href": "https://www.bookcontrol.info"
   },
   "navbar": {
-    "links": [
-      {
-        "label": "Support",
-        "href": "mailto:simon@hor1zon.io"
-      }
-    ],
     "primary": {
       "type": "button",
-      "label": "Dashboard",
-      "href": "http://my.bookcontrol.info/"
+      "label": "App",
+      "href": "http://my.bookcontrol.io/"
     }
   },
   "contextual": {
