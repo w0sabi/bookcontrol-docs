@@ -45,9 +45,9 @@
     ]
   },
   "logo": {
-    "light": "/images/bookcontrol-wordmark-dark.svg",
-    "dark": "/images/bookcontrol-wordmark-light.svg",
-    "href": "https://www.bookcontrol.info"
+    "light": "/images/bookcontrol-wordmark-light.svg",
+    "dark": "/images/bookcontrol-wordmark-dark.svg",
+    "href": "https://www.bookcontrol.io"
   },
   "navbar": {
     "primary": {
