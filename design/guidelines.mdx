@@ -1,0 +1,263 @@
+---
+title: "Design Guidelines"
+description: "Verbindliche Designsprache für BookControl und zugehörige Projekte (v0.3)"
+icon: "palette"
+---
+
+<Info>
+  Status: **Beschlossen** (17.09.2026, Owner-Review) — Grundlage für die Umsetzung in Phase 4. Gilt perspektivisch für alle zugehörigen Projekte, nicht nur die App. Alle Tokens tragen das Prefix `--bc-*`, damit sie in Nachbarprojekten kollisionsfrei übernommen werden können.
+</Info>
+
+## 1. Die Idee: „Schalter-Logik"
+
+Jede wiedererkennbare Designsprache braucht einen Kern, aus dem sich alles ableitet. Unserer kommt direkt aus der Marke: **Das Logo ist ein Schalter — die UI denkt in Zuständen.**
+
+BookControl ist eine Status-Maschine (Anfrage → Offer → Contract → Rider → Slot → Announced). Die Designsprache macht das zum Prinzip:
+
+1. **Farbe markiert Zustand, nicht Dekoration.** Der Akzent erscheint ausschließlich dort, wo etwas interaktiv ist oder seinen Zustand zeigt: Buttons, aktive Navigation, Status-Chips, der Toggle-Knob. Flächen, Rahmen und Überschriften bleiben neutral. Dadurch bleibt die Oberfläche ruhig — und wo Farbe ist, _bedeutet_ sie etwas.
+2. **Die Pillen-Geometrie des Logos ist die Form für Zustände.** Alles, was einen Zustand trägt (Status-Chips, Toggles, Filter-Pills, aktive Tabs), ist voll gerundet — wie die Logo-Pille. Alles, was Inhalt trägt (Cards, Inputs, Dialoge), hat eine moderate Ecke. Zwei Radien, zwei Bedeutungen. Das ist unser Wiedererkennungsmerkmal _und_ unser Gegenmittel gegen den „ein-Radius-auf-allem"-KI-Look.
+3. **Hierarchie durch Größe, nie durch Schmuck.** Das Wichtigste ist das Größte. Keine farbigen Border, keine Gradient-Flächen, keine Schatten-Orgien — wenn etwas wichtiger ist, ist es größer, fetter oder hat mehr Luft, sonst nichts.
+4. **Jede Aktion antwortet.** Sichtbare Reaktion in unter 100ms (Zustandswechsel, optimistisches Update oder Skeleton), Ergebnis-Feedback per Toast in der Sprache der Aktion („Publish" → „Published"). Ein stilles Interface ist ein kaputtes Interface.
+5. **Rückgängig schlägt Bestätigen.** Wo möglich, führt die App aus und bietet Undo an (Toast mit Rückgängig-Aktion), statt vorher mit Dialogen zu bremsen. Bestätigungsdialoge bleiben dem Unwiederbringlichen vorbehalten (Löschen, Versand an Externe).
+6. **Ehrlichkeit.** Die UI zeigt nie erfundene oder geschätzte Daten als echte (keine Demo-Werte, keine „ungefähren" Zahlen ohne Kennzeichnung), keine Fake-Bedienelemente ohne Funktion, keine Erfolgsmeldung ohne erfolgten Schreibvorgang. Was lädt, sieht aus wie Laden; was fehlt, sagt, dass es fehlt.
+7. **Priorität zuerst, Detail auf Nachfrage.** Jeder Screen beantwortet zuerst „Was braucht meine Aufmerksamkeit?" und legt Tiefe (Historie, Logs, Aufschlüsselungen) hinter einen Klick — Progressive Disclosure statt Datenwand.
+
+---
+
+## 2. Farbe
+
+### 2.1 Marken-Neutrale (Navy & Ice)
+
+Eine Markenfarbe, kühle Navy-Neutrale. **Light ist der Default-Modus** (Business- Kontext); Dark ist vollwertig vorhanden und wird bei jeder Komponente mitentworfen. Dark und Light sind **Abstimmungen desselben Systems**, nicht zwei Paletten.
+
+| Token | Dark | Light | Verwendung |
+| --- | --- | --- | --- |
+| `ground` | `#0A1226` | `#F4F7FC` | Seitenhintergrund |
+| `surface` | `#101A35` | `#FFFFFF` | Cards, Dialoge, Popover |
+| `surface-2` | `#16213F` | `#EDF2F9` | Hover-Flächen, Wells, Input-Hintergrund |
+| `ink` | `#E8EEFA` | `#0E1E45` | Primärtext, Icons |
+| `ink-muted` | `#8DA0C4` | `#5A6B8F` | Sekundärtext, Labels |
+| `line` | `#25324E` | `#D9E2F0` | Hairline-Border, Trenner |
+| `accent` | `#9DC1FF` | `#00246B` | Interaktion & Zustand (siehe 1.1) |
+| `on-accent` | `#0A1226` | `#FFFFFF` | Text auf Akzentflächen |
+
+Regeln:
+
+- **Ein Akzent.** Keine zweite Schmuckfarbe. Wer eine „zweite Farbe" braucht, braucht in Wahrheit eine Größen- oder Abstandsentscheidung.
+- Border sind **immer** `line` (neutral, 1px). Farbige Border sind verboten — Zustand gehört in Chips/Pills, nicht in Rahmen.
+- Dark ist Pflicht-Paritätspartner: Jede Komponente wird in beiden Modi entworfen, nicht invertiert.
+
+### 2.2 Status-Farben (Semantik, getrennt vom Akzent)
+
+Der Status-Zoo (aktuell 13 Einzeltöne) wird auf **vier semantische Familien** reduziert; jede Familie hat eine Chip-Variante (Tint-Fläche + kräftiger Text):
+
+| Familie | Bedeutung im Produkt | Dark-Basis | Light-Basis |
+| --- | --- | --- | --- |
+| `state-progress` | in Arbeit (Inquiry, Negotiation, Draft) | `#8DA0C4` (neutral) | `#5A6B8F` |
+| `state-success` | bestätigt (Signed, Confirmed, Locked) | `#3ECF8E` | `#0E7A47` |
+| `state-warning` | wartet auf jemanden (Pending, Reminder) | `#F5B84C` | `#9A6A00` |
+| `state-danger` | blockiert/abgelaufen (Blocked, Expired) | `#F26D6D` | `#B42318` |
+
+Regeln:
+
+- Status-Farbe erscheint **nur in Chips und Punkten**, nie als Flächen- oder Textfarbe im Fließtext.
+- „In Arbeit" ist bewusst **neutral** — nicht jeder Zwischenschritt verdient Farbe. Farbe eskaliert: neutral → warning → danger; success beendet.
+- Rot bleibt exklusiv für Blocker/Fehler (deshalb ist es keine Markenfarbe).
+
+---
+
+## 3. Typografie
+
+### 3.1 Schriften & Rollen
+
+| Rolle | Schrift | Einsatz |
+| --- | --- | --- |
+| UI & Text | **Outfit** (Variable) | Alles: Headlines, Body, Buttons, Labels |
+| Daten | **JetBrains Mono** | Beträge, Uhrzeiten, Datumsspalten, IDs, Tokens |
+
+Eine Familie für Sprache, eine für Daten — die Mono ist keine Deko, sondern das Signal „das hier ist ein Wert, den du vergleichen kannst". Beide self-hosted.
+
+**Mono-Regel:** JetBrains Mono immer dann, wenn die Breite eines Wertes durch Ziffern variiert — Beträge, Uhrzeiten, **Datumsangaben**, Versionsnummern, IDs, Tokens. So stehen Spalten und Listen stabil, egal welche Werte drinstehen. Fließtext und Namen bleiben immer Outfit.
+
+### 3.2 Skala („lieber größer als Textwüste")
+
+Basis **15px** (eine Stufe über SaaS-Standard — bewusste Entscheidung gegen Kleintext), Schrittweite ~1.2, wenige Stufen:
+
+| Token | Größe / Zeilenhöhe | Gewicht | Verwendung |
+| --- | --- | --- | --- |
+| `display` | 28 / 34 | 600 | Die eine Kernzahl oder der Seitenfokus (max. 1× pro Screen) |
+| `title` | 22 / 28 | 600 | Seitentitel |
+| `heading` | 17 / 24 | 600 | Card-/Sektions-Titel |
+| `body` | 15 / 22 | 400 | Standardtext, Tabellenzellen |
+| `body-strong` | 15 / 22 | 500 | Hervorhebung im Fließkontext, Buttons |
+| `small` | 13 / 18 | 400 | Sekundärinfos, Hilfetexte |
+| `micro` | 12 / 16 | 500 | Chips, Tabellen-Header, Zeitstempel |
+
+Regeln:
+
+- **Wichtigkeit = Größe.** Die Information, die zuerst gesehen werden soll, bekommt die größte Stufe auf dem Screen — und pro Screen gibt es genau _eine_ `display`-Instanz. Zwei gleich große Elemente heißt: eine Entscheidung fehlt.
+- Nur die Gewichte **400 / 500 / 600**. Kein Light, kein Bold, kein Black.
+- Zahlen in Tabellen immer `tabular-nums`, Geldbeträge rechtsbündig in Mono.
+- Keine ALL-CAPS-Labels als Standardmittel. Wenn ein Label nötig ist, ist es `micro` in `ink-muted` — Sentence case.
+- Zeilenlänge Fließtext ≤ 70 Zeichen.
+
+---
+
+## 4. Raum & Dichte
+
+**Prinzip: „Ein Screen, eine Frage."** Nicht zu eng, nicht zu luftig — die Dichte richtet sich danach, ob der Screen zum _Überblicken_ (Dashboard, Monitoring) oder zum _Arbeiten_ (Tabellen, Formulare) da ist.
+
+- **4px-Basisskala:** 4 / 8 / 12 / 16 / 24 / 32 / 48. Keine Zwischenwerte.
+- **Luft-Regeln:**
+  - Card-Innenabstand: 20px; Abstand zwischen Cards/Sektionen: 24px.
+  - Zusammengehöriges rückt zusammen (8), Getrenntes rückt auseinander (24) — Nähe ist die primäre Gruppierung, nicht Rahmen.
+  - Tabellenzeilen: **44px Standard**, plus optionaler **Kompaktmodus (36px)** als Nutzer-Einstellung (persistiert in `user_preferences`) — für Power-Screens wie Timetable und Monitoring.
+- **Seitenbreite:** Inhalt max. 1200px, linksbündig im Content-Bereich. Formulare max. 640px. Kein zentrierter Flattersatz.
+- **Elevation:** Flach per Default. Schatten nur für echte Ebenen (Dropdown, Dialog, Toast) — eine einzige Schattenstufe, sonst Hairlines.
+
+---
+
+## 5. Layout-Anatomie (SaaS-Grundgerüst)
+
+```text
+┌────────────┬──────────────────────────────────────────────┐
+│  Wordmark  │  Topbar: Kontext (Festival) · Global-Actions │
+│            ├──────────────────────────────────────────────┤
+│  Festival- │                                              │
+│  Switcher  │   Page-Header: Titel (title) + Primäraktion  │
+│            │                                              │
+│  Menü      │   Inhalt (max 1200px, linksbündig)           │
+│  ▸ aktiv = │                                              │
+│    Pill    │                                              │
+│            │                                              │
+│  Tenant /  │                                              │
+│  Profil    │                                              │
+└────────────┴──────────────────────────────────────────────┘
+```
+
+- **Sidebar (240px):** Wordmark oben, darunter Festival-Switcher, Menü, unten Tenant/Profil. Aktiver Menüpunkt = **Pill** (Schalter-Logik), nicht Balken/Border.
+- **Page-Header-Vertrag:** Jede Seite beginnt identisch — `title`, optional eine Zeile Kontext in `small`, rechts genau **eine** Primäraktion. Sekundäraktionen wandern in ein Menü.
+- **Public-Seiten** (Agentur-Sicht) nutzen dieselben Tokens in einer schlanken Shell ohne Sidebar: gleiche Marke, weniger Chrome.
+
+---
+
+## 6. Komponenten-Grundsätze
+
+- **Radius-System:** `full` (Pillen: Chips, Toggles, aktive Nav, Avatare) · `10px` (Flächen: Cards, Inputs, Buttons, Dialoge) · `0` sonst. Nichts dazwischen.
+- **Buttons:** Primär = Akzentfläche (max. 1× pro Ansicht sichtbar), Sekundär = Hairline auf Surface, Ghost = nur Text. Button-Text sagt, was passiert („Create offer", nicht „Submit").
+- **Tabellen:** Header in `micro`/`ink-muted`, Zeilen-Hover in `surface-2`, Status als Chip, Geld in Mono rechtsbündig. Keine Zebra-Streifen.
+- **Loading:** Skeletons in Objektform (nie Spinner im Content); der animierte Brand-Loader nur für Vollbild-Übergänge.
+- **Empty States:** Jede Liste hat einen — eine Zeile, was das hier ist, plus die Aktion, die den ersten Eintrag erzeugt. Kein Illustration-Kitsch.
+- **Motion:** Antwortet nur auf Nutzeraktionen (Öffnen, Bestätigen, Umschalten), 120–200ms. Keine Scroll-Reveals, keine Hover-Lifts auf allem. `prefers-reduced-motion` wird respektiert.
+
+---
+
+## 7. Anti-Patterns (der „Kein-KI-Slop"-Katalog)
+
+Explizit verboten, weil sie generisch aussehen und nichts bedeuten:
+
+- Farbige Border oder linke Farbkanten an Cards
+- Gradient-Hintergründe und Glow-Effekte als Dekoration
+- Identische Card-Raster, in die jeder Inhalt gepresst wird
+- ALL-CAPS-Eyebrow über jeder Überschrift, Mittelpunkt-Ketten („A · B · C")
+- Ein Border-Radius auf allem
+- Mehr als eine Akzentfarbe, Akzent auf nicht-interaktiven Flächen
+- Emojis als UI-Icons, „→" an Button-Texten
+- Text unter 12px
+
+---
+
+## 8. Responsivität (nicht verhandelbar)
+
+**Prinzip: Keine Information geht durch Bildschirmgröße verloren oder wird komisch dargestellt.** Inhalte fließen um — sie verschwinden nie kommentarlos.
+
+- **Zielgeräte:** Desktop ≥ 1280 (Primärarbeit) · Tablet 768–1024 (vollwertig, jede Funktion) · Mobil ≥ 360 (vollwertig lesen + Kernaktionen). Breakpoints = Tailwind-Standard (`sm 640 / md 768 / lg 1024 / xl 1280`).
+- **Verbote:** `display: none` auf Datenspalten ohne gleichwertige alternative Darstellung; fixe Pixelbreiten an Inhalts-Containern; horizontales Scrollen der _Seite_ (Scrollen _innerhalb_ eines klar begrenzten Containers ist ok).
+- **Tabellen-Strategie** (in dieser Reihenfolge):
+  1. Spalten dürfen schrumpfen/umbrechen, solange Werte lesbar bleiben.
+  2. Reicht das nicht: horizontales Scrollen **innerhalb** der Tabelle mit sticky erster Spalte (Artist/Name bleibt stehen) und sichtbarer Scroll-Affordance.
+  3. Für einfache Listen unter `md`: definierter Card-Reflow — jede Zeile wird zur strukturierten Karte mit festgelegter Feldreihenfolge, kein Feld entfällt.
+- **Touch:** Trefferflächen ≥ 44px; nichts ist hover-only — jede Hover-Funktion hat ein Touch-Äquivalent. Dialoge werden unter `md` zu Bottom-Sheets, die Sidebar zum Drawer.
+- **Text skaliert nie unter 12px**, auch nicht auf Mobil — lieber umbrechen.
+
+## 9. Barrierefreiheit & Qualität (nicht verhandelbar)
+
+- Kontrast WCAG 2.1 AA (Text ≥ 4.5:1, große Schrift ≥ 3:1) — in **beiden** Modi.
+- Sichtbarer Fokusring (Akzentfarbe, 2px offset) auf allem Interaktiven.
+- Vollständige Tastatur-Bedienbarkeit; Status nie nur über Farbe (Chip trägt Text).
+- Ladeziel unter 2s, Skeletons statt Blockaden.
+
+---
+
+## 10. Entscheidungslog
+
+**v0.3 (17.09.2026):** Abgleich mit klassischen Prinzipien (Rams/BRAUN, Apple HIG, Nielsen/Norman) durchgeführt → Kapitel 11. Vier daraus fehlende Verhaltens- Prinzipien in Kapitel 1 ergänzt: Jede Aktion antwortet (4), Rückgängig schlägt Bestätigen (5), Ehrlichkeit (6), Priorität zuerst / Progressive Disclosure (7).
+
+**v0.2 (17.09.2026, Owner):**
+
+1. Default-Modus **Light**; Dark vollwertig vorhanden.
+2. Flächen-Radius bleibt **10px**.
+3. Status-Reduktion auf die 4 Familien aus 2.2 bestätigt (Detail-Zuordnung der Einzelstati erfolgt bei der Umsetzung pro Modul).
+4. Mono-Reichweite: **auch Datumsangaben** — generell überall, wo die Breite durch Ziffern variiert (siehe 3.1).
+5. Tabellen: 44px Standard **plus optionaler Kompaktmodus 36px**.
+6. **100% Responsivität** als hartes Kriterium (Abschnitt 8).
+7. Token-Prefix **`--bc-*`** bestätigt.
+
+---
+
+## 11. Abgleich mit klassischen Prinzipien
+
+Prüfung unserer Sprache gegen die drei relevantesten Kanons. ✓ = war abgedeckt, ＋ = wurde durch den Abgleich ergänzt (Kapitel 1, Prinzipien 4–7), — = bewusst nicht übernommen.
+
+### 11.1 Dieter Rams — 10 Thesen für gutes Design (BRAUN)
+
+| Rams | Bei uns |
+| --- | --- |
+| Innovativ | — (kein Selbstzweck; Innovation kommt aus dem Produkt, nicht dem Chrome) |
+| Macht ein Produkt brauchbar | ✓ Kern von allem: „Dashboard = Entscheidungsdesign", Ein Screen, eine Frage |
+| Ästhetisch | ✓ Typografie-Skala, Luft-Regeln, ein Akzent |
+| Macht ein Produkt verständlich | ✓ Hierarchie durch Größe, Status als beschriftete Chips, Button sagt was passiert |
+| Unaufdringlich | ✓ Farbe nur am Zustand, flache Elevation, Motion nur auf Aktion |
+| **Ehrlich** | ＋ Prinzip 6 — keine Fake-Daten, keine Fake-Controls, kein Erfolg ohne Schreibvorgang (die `Math.random()`-Budgets waren genau dieser Verstoß) |
+| Langlebig | ✓ Token-System mit `--bc-*`, dokumentiert statt trendgetrieben |
+| Konsequent bis ins Detail | ✓ Radius-Semantik, Mono-Regel, 4px-Skala ohne Zwischenwerte |
+| Umweltfreundlich | — (übertragen: Performance-Budget unter 2s, self-hosted Fonts statt CDN-Ballast) |
+| **So wenig Design wie möglich** | ✓ Anti-Pattern-Katalog ist die operative Fassung dieser These |
+
+### 11.2 Apple Human Interface Guidelines
+
+| HIG-Kernbegriff | Bei uns |
+| --- | --- |
+| Clarity | ✓ 15px-Basis, Wichtigkeit = Größe, Zeilenlänge ≤ 70 |
+| Deference (Chrome tritt zurück) | ✓ neutrale Flächen/Rahmen, Akzent nur am Zustand |
+| Depth (Ebenen bedeuten etwas) | ✓ eine Schattenstufe nur für echte Ebenen (Dropdown/Dialog/Toast) |
+| **Feedback** | ＋ Prinzip 4 — jede Aktion antwortet unter 100ms |
+| **Direktheit/Forgiveness** | ＋ Prinzip 5 — Undo statt Bestätigungs-Bremsen |
+| Konsistenz | ✓ Page-Header-Vertrag, gleiche Aktion = gleicher Name im ganzen Flow |
+| Touch-Metriken | ✓ ≥ 44px Trefferflächen (Kapitel 8) |
+
+### 11.3 Nielsen/Norman — Usability-Heuristiken
+
+| Heuristik | Bei uns |
+| --- | --- |
+| **Sichtbarkeit des Systemstatus** | ＋ Prinzip 4 + ehrliche Ladezustände (Prinzip 6) |
+| Übereinstimmung System ↔ Welt | ✓ Copy-Regeln: Nutzerbegriffe, nicht Systembegriffe |
+| **Nutzerkontrolle & Freiheit** | ＋ Prinzip 5 (Undo); UndoContext existiert bereits in der App |
+| Konsistenz & Standards | ✓ Tokens, Radius-Semantik, Verhalten dokumentiert |
+| Fehlervermeidung | ✓/＋ Bestätigung nur fürs Unwiederbringliche; Formulare validieren vor dem Absenden |
+| Wiedererkennen statt Erinnern | ✓ sichtbare Aktionen statt versteckter Gesten; nichts hover-only |
+| Flexibilität & Effizienz | ✓ Kompaktmodus für Power-User (übrige Shortcuts: Backlog) |
+| Ästhetik & Minimalismus | ✓ Progressive Disclosure (Prinzip 7), Anti-Patterns |
+| Fehler erkennen & beheben | ✓ Fehler sagen was passiert ist und wie es weitergeht — nie vage, nie entschuldigend |
+| Hilfe & Doku | — bewusst offen (Onboarding-Wizard deckt den Erstkontakt; In-App-Hilfe ist Backlog) |
+
+**Fazit des Abgleichs:** Die visuelle Ebene war vollständig; gefehlt haben vier _Verhaltens_-Prinzipien (Feedback, Undo, Ehrlichkeit, Progressive Disclosure) — jetzt Kapitel 1, Nr. 4–7. Bewusst nicht übernommen: Innovation als Eigenwert (Rams 1) und ein In-App-Hilfesystem (Nielsen 10, Backlog).
+
+---
+
+## 12. Quellen & Referenzrahmen
+
+- Progressive Disclosure & „Dichte ≠ Wert" — [FlowmazeUX: SaaS Dashboard Best Practices](https://flowmazeux.com/saas-dashboard-design-best-practices/), [Orbix: SaaS Dashboard Design Guide](https://www.orbix.studio/blogs/saas-dashboard-design-complete-guide)
+- Token-Architektur (primitiv → semantisch) — [Adobe Spectrum: Design Tokens](https://spectrum.adobe.com/page/design-tokens/), [UX Collective: Typography mit semantischen Tokens](https://uxdesign.cc/mastering-typography-in-design-systems-with-semantic-tokens-and-responsive-scaling-6ccd598d9f21)
+- Spacing-Skala (4/8er-System, Dichte-Steuerung) — [IBM Carbon: Spacing](https://carbondesignsystem.com/elements/spacing/overview/)
+- Typografie-Systematik — [designsystems.surf: Typography System 101](https://designsystems.surf/articles/typography-system-101-a-step-by-step-guide)

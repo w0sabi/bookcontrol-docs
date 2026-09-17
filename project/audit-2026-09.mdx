@@ -1,0 +1,75 @@
+---
+title: "Audit September 2026"
+description: "Bestandsaufnahme: Onboarding, Sicherheit, Features, UI-Zustand (16.09.2026)"
+icon: "magnifying-glass"
+---
+
+Ergebnis eines Code-Audits über vier Dimensionen: Onboarding, Feature-Vollständigkeit, UI-Zustand, Datenschicht/Sicherheit. Referenzen als `datei:zeile`.
+
+<Info>
+  Alle hier gelisteten kritischen Befunde (K1–K5, Onboarding, Bug-Hygiene) wurden in den Phasen 1–3 und 5 behoben — siehe [Roadmap](/project/roadmap). Dieses Dokument ist der historische Ausgangszustand.
+</Info>
+
+## Gesamtbild
+
+Die Kernmodule (Bookings, Riders, Timetable, Contacts, Budget, Offers/Contracts, SocialAssets, E-Mail-Versand, Signaturen, PDF-Export) sind real an Supabase angebunden und funktionieren im Grundsatz. Die Probleme konzentrieren sich auf drei Bereiche:
+
+1. **Onboarding ist eine Sackgasse** — ein neuer User kann nichts sehen und nichts anlegen.
+2. **Sicherheit/Mandantentrennung ist defekt** — mehrere kritische RLS-Lücken; Share-Links dürfen so nicht an echte Agenturen raus.
+3. **UI-Anwendungsschicht ist degeneriert** — solides Design-Fundament, aber Monolith-Seiten, fehlende Loading-/Empty-States, halb umgesetztes i18n, Fake-UI-Bereiche.
+
+---
+
+## 1. Onboarding-Sackgasse (vom Owner gemeldet, bestätigt)
+
+Fehlerkette für einen neuen User:
+
+1. Trigger `handle_new_user`: nur der allererste User der Instanz wird `admin`, jeder weitere `readonly` — und bekommt einen **eigenen, leeren Tenant** „My Organization" (`supabase/migrations/20260423213646_*.sql:20-42`).
+2. Festivals werden tenant-gefiltert geladen → leere Liste (`src/contexts/AppContext.tsx:253-283`).
+3. Kein Empty-State: `currentFestival` bleibt der Stub `"__loading__"`, die URL-Injection bricht bei leerer Liste ab (`AppContext.tsx:291`) → leere, funktionslose App.
+4. „Neues Festival"-Button existiert nur im Sidebar-Dropdown und ist `isAdmin`-gated (`src/components/sidebar/FestivalManager.tsx:519-530`, `src/components/Layout.tsx:170`).
+5. Selbst mit Button: RLS-INSERT auf `festivals` verlangt `is_admin()` (`20260413204942_*.sql:10-12`) → würde abgelehnt.
+
+Weitere Befunde im Umfeld:
+
+- **Self-Signup ist im UI hart deaktiviert** (`src/pages/Auth.tsx:62-79`); `signUp` in `AuthContext` existiert, wird nie aufgerufen.
+- **`invite-user` legt eingeladene User in den falschen Tenant**: Trigger erzeugt eigenen Tenant, die Function fügt zusätzlich eine zweite `user_roles`-Zeile ein → doppelte Rollen, Frontend liest mit `.limit(1)` ohne Sortierung → zufällige effektive Rolle (`supabase/functions/invite-user/index.ts:78-91`, `AppContext.tsx:422-427`).
+- **`addFestival` ignoriert den Supabase-Error** und fügt optimistisch lokal ein → Festival verschwindet nach Reload (`AppContext.tsx:508-527`).
+- **Race Condition**: `tenantId` wird asynchron geladen; Festival-Anlage vor Abschluss schreibt `tenant_id = null` → Festival unter tenant-scoped SELECT unsichtbar (`AppContext.tsx:440-448,521`).
+- Demo-Festival ist an einen fixen fremden Tenant gebunden, Seed-Festivals wurden gelöscht → neuer User sieht garantiert nichts.
+
+## 2. Sicherheit / Datenschicht (kritisch, vor echten Nutzern zu beheben)
+
+- **K1 — Mandantentrennung faktisch aufgehoben**: Alte `FOR ALL USING (is_admin())`-Policies wurden bei der Tenant-Umstellung nie gedroppt. Da RLS-Policies OR-verknüpft sind, kann jeder Admin tenant-übergreifend lesen UND schreiben: `bookings`, `riders` (`20260328213303_*.sql:83,110`), `rider_library_items`/`hotel_library`/`hotel_room_types` (`:17,36,54`), `contacts`/`artist_profiles`/`artist_contacts`/`library_templates` (`20260329220549_*.sql:65,93,103,117`), `timetable_*` (`20260331202347_*.sql:56,68,80`). `offers`/`contracts` (`20260413204942_*.sql`) machen es korrekt vor.
+- **K2 — `access_links` anonym komplett auslesbar**: `FOR SELECT TO anon USING (true)` (`20260425123349_*.sql:24-27`) → alle Share-Tokens + Empfänger-E-Mails aller Tenants öffentlich; Tokens sind der einzige Schutz der Public-RPCs. Policy entfernen — Token-Auflösung läuft ohnehin über SECURITY-DEFINER-Funktionen.
+- **K3 — `pdf_annotations` anonym les- und beschreibbar** (`20260425203257_*.sql:18-30`), `annotation_key` basiert auf erratbaren IDs. Per Access-Link-Token gaten.
+- **K4 — `send-email` ist ein offener Mail-Relay**: kein Aufrufer-/Rollencheck; der anon-Key ist ein gültiger JWT → jeder kann Mails von `notifications@bookcontrol.info` an beliebige Empfänger senden. `public-timetable-notify` prüft Token nicht auf `is_active`/`expires_at` und interpoliert Nutzereingaben ungefiltert in HTML.
+- **K5 — Client-generierte IDs per `Date.now()`**: `b${Date.now()}` (`src/pages/Bookings.tsx:446`), `off${Date.now()}`/`con${Date.now()}` (`src/contexts/OfferContext.tsx:695,904`) → kollisionsanfällig und erratbar (verstärkt K3). `crypto.randomUUID()` wird an anderer Stelle bereits genutzt.
+- **H1** — `budget_limits`-Schreibpfad `is_admin`-only ohne Tenant-Scope (`20260314115954_*.sql:19-25`).
+- **H2 — Lost Updates durch JSONB-Whole-Row-Upserts**: `persistOffer`/`persistContract` (`OfferContext.tsx:652-671`) und `persistBookingToSupabase` (`AppContext.tsx:457-479`) schreiben `versions`/`audit_log`/`notes`/`comments` komplett aus lokalem State → paralleles Arbeiten oder Public-RPC-Kommentare werden überschrieben (Public-RPCs appenden korrekt atomar, der Client macht es danach wieder kaputt).
+- **H3** — `festival_id` überall `text` ohne FK; viele Tabellen ohne eigene `tenant_id`-Spalte; Isolation hängt komplett am Festival-Join. Strukturfix (tenant_id NOT NULL + FKs) nach dem Prototyp.
+- **M** — CORS `*` auf allen Edge Functions; fester Realtime-Channelname `document-signatures-sync` ohne Tenant-Scope; Cleanup der Subscriptions ansonsten ok.
+
+## 3. Halbfertige / tote Features
+
+- **Reminder-Feature ohne Backend**: UI + DB-Felder (`reminder_interval_days`, `next_reminder_date`) existieren, aber kein Cron/Scheduler/Function löst je etwas aus → reine Attrappe.
+- **Settings teils Fake**: „Contract/Rider Templates" mit hartkodierten Namen und Buttons ohne `onClick`; „Notification Rules" sind `<Switch defaultChecked />` ohne State/Persistenz (`src/pages/Settings.tsx:200-247`).
+- **ProcessMonitoring**: Rider-/Social-/Media-Spalten dauerhaft 0 — sie hängen am ausgehöhlten Demo-Gerüst (`ProcessMonitoring.tsx:163-165,198`); nur Offers/Contracts/Bookings-KPIs sind echt.
+- **Ausgehöhltes Demo-Gerüst**: `MOCK_*`/`DEFAULT_*`-Arrays leer, `isDemoFestival()` hart `false` (`AppContext.tsx:124-131`, `src/data/*.ts`) → abhängiger Code läuft ins Leere.
+- **Tote Seiten**: `src/pages/OfferAccess.tsx` (Legacy, localStorage-basiert) und `src/pages/ClauseLibrary.tsx` — beide nicht geroutet.
+- **Still verschluckte Fehler** (UI meldet Erfolg, DB-Write scheiterte): `access_links`-Insert (`OfferContext.tsx:800,1033`), Signatur-/Offer-/Contract-Persistenz (`:647,659,671`), Clauses (`:865,886`), PDF-Upload (`:918,948`), Templates (`:1112,1139`); leere catch-Blöcke in `PublicOfferPage.tsx`.
+- **Public-Signaturanzeige**: `PublicOfferPage.tsx:90-108` liest `document_signatures` direkt (anon-blocked, silent fail) → Externe sehen die Gegenseite-Signatur nicht.
+- Totes `AppContext.notifications` (immer `[]`) parallel zum echten `NotificationContext`.
+
+## 4. UI-Zustand
+
+**Behalten:** Token-basiertes Farbsystem (`tailwind.config.ts:19-107`, `src/index.css`), komplette shadcn-`ui/`-Bibliothek (48 Komponenten), `StatusBadge`, `ConfirmContext`, Sonner-Toasts, App-Shell mit Mobile-Sheet (`Layout.tsx`), i18n-Infrastruktur.
+
+**Probleme:**
+
+- **Monolith-Seiten**: `Timetable.tsx` 1923, `Budget.tsx` 1581, `Contacts.tsx` 1302, `SocialAssets.tsx` 1146, `ProcessMonitoring.tsx` 1076, `Bookings.tsx` 979 Zeilen; dazu `PDFViewer.tsx` 1283, `OfferFormEditor.tsx` 805.
+- **Keine Skeleton-Loading-States (0 Verwendungen)**, kaum Empty-States, Error-States nur punktuell.
+- **Inkonsistente Komponentennutzung**: rohe `<table>` in 4 Seiten, massenhaft rohe `<button>` (Topbar komplett, `Layout.tsx:234-346`), Dashboard-Tiles als rohe `<div>`s.
+- **Theme-Bug**: `ui/sonner.tsx` nutzt `useTheme` aus `next-themes`, es gibt aber keinen Provider dafür (App nutzt eigenen `ThemeContext`) → Toasts ignorieren das App-Theme.
+- **i18n halb**: nur 12/22 Seiten übersetzt; Toasts und viele JSX-Strings hart deutsch; Public-Seiten/Auth komplett unübersetzt.
+- 65 hartkodierte Hex-Farben (v. a. `BudgetExport.tsx` mit eigenem Parallel-Farbsystem), 55 fixe Pixelbreiten, Z-Index-Wildwuchs (`z-[9999]`/`z-[10000]`), kein gemeinsames PageHeader-Pattern, Public-Seiten ohne gemeinsames Layout.

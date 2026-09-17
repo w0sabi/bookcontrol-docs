@@ -1,0 +1,15 @@
+---
+title: "Artist & Agency: Source of Truth"
+description: "Die Agentur eines Artists lebt im Contactbook; alle Module lesen von dort"
+icon: "users"
+---
+
+The `agency` field is part of the artist's core data on `artist_profiles` (DB column `agency`, in code `ArtistProfile.agency`). It is editable ONLY in the Contactbook (artist edit dialog).
+
+In the Booking module:
+- Artist Name and Agency are READ-ONLY (no EditableCell / EditableField) in both list and detail views.
+- On artist selection in a new booking, agency is auto-populated from `artist.agency` (fallback: linked artist_agency contact's company).
+- BookingDetail has an effect that syncs `booking.agencyName` from the linked artist whenever the Contactbook agency changes, so Offers/Contracts/Riders that read `booking.agencyName` stay aligned.
+- Saving an artist in the Contactbook propagates the agency to the linked booking via `updateBooking`.
+
+A note under the booking header informs users that artist + agency are managed in the Contactbook and links there.
