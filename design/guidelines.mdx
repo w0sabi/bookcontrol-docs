@@ -139,6 +139,26 @@ Regeln:
 - **Page-Header-Vertrag:** Jede Seite beginnt identisch — `title`, optional eine Zeile Kontext in `small`, rechts genau **eine** Primäraktion. Sekundäraktionen wandern in ein Menü.
 - **Public-Seiten** (Agentur-Sicht) nutzen dieselben Tokens in einer schlanken Shell ohne Sidebar: gleiche Marke, weniger Chrome.
 
+### 5.1 Breadcrumbs statt Zurück-Buttons (verbindlich)
+
+Der Seitenkontext lebt in der **Topbar**, nicht in ad-hoc Buttons im Inhalt. Listen-/Standardseiten zeigen dort ihren Seitentitel; **Detailseiten haben keinen eigenen „Zurück"-Button**, sondern die Topbar wird zum Breadcrumb-Pfad:
+
+```text
+Bookings  /  Fred again..
+└ Sektion   └ Entität
+  (verlinkt)  (aktuell, nicht verlinkt)
+```
+
+- Die Sektion (erster Crumb) ist verlinkt und führt zur Übersicht — ein Klick darauf ist der Weg „zurück". Bei gefilterten Übersichten (`?artist=…`) räumt derselbe Klick den Filter ab.
+- Der letzte Crumb ist die aktuelle Entität, nicht verlinkt.
+- Umsetzung: Detailseiten melden ihren Trail über `usePageBreadcrumb([{ label, to }, { label }])` (`BreadcrumbContext`); die Topbar in `Layout` rendert ihn. Nichts gemeldet → normaler Seitentitel.
+
+### 5.2 Querverlinken statt Hinweistexte
+
+Wo ein Wert seine **Quelle woanders** hat (z. B. Artist/Agentur im Kontaktbuch als Source of Truth), wird er als **Referenz auf diese Quelle** gerendert — ein Link —, nicht durch einen erklärenden Hinweissatz („wird im Kontaktbuch verwaltet"). Der Link erklärt sich selbst und bringt direkt zum Ursprung.
+
+**Trenner-Regel:** Separatoren (`·`, `/`, `|`) erscheinen **nur zwischen tatsächlich vorhandenen Werten**. Ist ein angrenzender Wert leer, entfällt der Trenner — kein „Agency · –", kein führender/hängender Punkt. (Gilt auch für die Breadcrumbs selbst.)
+
 ---
 
 ## 6. Komponenten-Grundsätze
