@@ -37,7 +37,8 @@
         "group": "Produktlogik",
         "pages": [
           "logic/booking-status",
-          "logic/artist-agency"
+          "logic/artist-agency",
+          "logic/multi-tenancy"
         ]
       }
     ]
